@@ -28,9 +28,9 @@ export class AutenticacionService {
     return claveCifrada;
   }
 
-  IdentificarUsuario(correo: string, clave: string){
+  IdentificarUsuario(correo: string, clavecifrada: string){
     try {
-      let clavecifrada=this.CifrarClave(clave);
+
       let u=this.usuariosRepository.findOne({where: {email: correo, contrasena: clavecifrada}});
       if (u) {
         return u;

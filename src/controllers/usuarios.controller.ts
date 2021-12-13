@@ -1,3 +1,4 @@
+import {authenticate} from '@loopback/authentication';
 import {service} from '@loopback/core';
 import {
   Count,
@@ -13,7 +14,7 @@ import {
   response
 } from '@loopback/rest';
 import {Llaves} from '../config/llaves';
-import {Credenciales, Usuarios} from '../models';
+import {Credenciales, MensajeCorreo, MensajeSms, Usuarios} from '../models';
 import {UsuariosRepository} from '../repositories';
 import {AutenticacionService, NotificacionService} from '../services';
 const fetch=require('node-fetch');
@@ -41,7 +42,10 @@ export class UsuariosController {
     async identificarUsuarios(
       @requestBody() credenciales:Credenciales
       ){
-        let p= await this.servicioAutenticacion.IdentificarUsuario(credenciales.usuario,credenciales.clave);
+        let clavecifrada=this.servicioAutenticacion.CifrarClave(credenciales.clave);
+        //console.log("email:"+credenciales.usuario)
+        //console.log("clave cifrada:"+clavecifrada)
+        let p= await this.servicioAutenticacion.IdentificarUsuario(credenciales.usuario,clavecifrada);
         if(p){
           let token = this.servicioAutenticacion.GenerarTokenJWT(p);
           return {
@@ -59,6 +63,31 @@ export class UsuariosController {
       }
 
 
+
+@post("/contacto",{
+    responses:{
+      //18:37
+      '200':{
+        description: 'Identificacion de usuarios'
+      }
+    }
+    })
+    async enviarCorreo(
+      @requestBody() objeto:{nombres:string,mensaje:string,remitente:string}
+      ){
+        let correo = new MensajeCorreo();
+        correo.destinatario="juan98.lozanog@mail.com";
+        correo.asunto="Contacto";
+        correo.contenido=`${objeto.nombres}:<br/>${objeto.remitente}:<br/>${objeto.mensaje}`;
+        this.servicioNotificacion.MensajeCorreo(correo);
+        /*
+        let sms = new MensajeSms();
+        sms.telefono='3208994674';
+        sms.mensaje=`Mensaje de ${objeto.nombres}: (${objeto.remitente}):\n${objeto.mensaje}`;
+        this.servicioNotificacion.Mensajesms(sms);
+        */
+      }
+
 @post("/identificarUsuario",{
     responses:{
       //18:37
@@ -71,6 +100,8 @@ export class UsuariosController {
       @requestBody() credenciales:Credenciales
       ): Promise<Usuarios>{
         let clavecifrada=this.servicioAutenticacion.CifrarClave(credenciales.clave);
+        //console.log("email:"+credenciales.usuario)
+        //console.log("clave cifrada:"+clavecifrada)
         let p= await this.usuariosRepository.findOne({where: {email: credenciales.usuario, contrasena: clavecifrada}});
         if(p){
           return p;
@@ -87,40 +118,39 @@ export class UsuariosController {
   }
 })
 async recuperarClave(
-  @requestBody() credenciales:Credenciales
+  @requestBody() objeto:{correo:string}
 ): Promise<Boolean>{
   let usuario = await this.usuariosRepository.findOne({
     where:{
-      email:credenciales.usuario,
-      contrasena:this.servicioAutenticacion.CifrarClave(credenciales.clave)
+      email:objeto.correo,
     }
   });
   if(usuario){
-    let clave = usuario.contrasena;
-    console.log(clave);
-    let claveCifrada = this.servicioAutenticacion.CifrarClave("defecto1");
+    let clave = this.servicioAutenticacion.GenerarClave();
+    //console.log(clave);
+    let claveCifrada = this.servicioAutenticacion.CifrarClave(clave);
     console.log(claveCifrada);
     usuario.contrasena = claveCifrada;
     await this.usuariosRepository.updateById(usuario.id, usuario);
 
    // http://127.0.0.1:5000/
-   /*
+
    let correo = new MensajeCorreo();
    correo.destinatario=usuario.email;
    correo.asunto="Restaurar contraseña";
-   correo.contenido=`Hola ${usuario.nombres}<br/>Se a recuperado su contraseña<br/>nueva contraseña:${clave}`;
+   correo.contenido=`Hola ${usuario.nombres}<br/>Se ha restaurado su contraseña<br/>Nueva contraseña: ${clave}`;
    this.servicioNotificacion.MensajeCorreo(correo);
 
     // enviar clave por SMS
     let sms = new MensajeSms();
     sms.telefono=usuario.telefono;
-    sms.mensaje=`Hola ${usuario.nombres}<br/>Se a recuperado su contraseña<br/>nueva contraseña:${clave}`;
-   this.servicioNotificacion.Mensajesms(sms);
-   */
+    sms.mensaje=`Hola ${usuario.nombres}\nSe a recuperado su contraseña\nnueva contraseña: ${clave}`;
+    this.servicioNotificacion.Mensajesms(sms);
+
     return true;
   }else{
     console.log('error');
-    return false;
+    throw new HttpErrors[401]("Datos invalidos")
   }
 
 }
@@ -130,7 +160,7 @@ async recuperarClave(
 
 
 //heroku / docker
-
+  @authenticate.skip()
   @post('/usuarios')
   @response(200, {
     description: 'Usuarios model instance',
@@ -170,17 +200,14 @@ async recuperarClave(
     let contenido=`Hola ${usuarios.nombres} ${usuarios.rol}, su usuario es ${usuarios.email}, su pass es ${clave}`;
       fetch(`${Llaves.urlservicioNotificacion}/envio-correo?correo-destino=${destino}&asunto=${asunto}&contenido=${contenido}`)
       .then((data: any) => {
-          console.log(data);
+          //console.log(data);
       })
+    let sms = new MensajeSms();
+    sms.telefono=usuarios.telefono;
+    sms.mensaje=`Hola ${usuarios.nombres}\nSu usuario es ${usuarios.email}, su pass es ${clave}`;
+    this.servicioNotificacion.Mensajesms(sms);
 
-
-    /*
-
-    */
     return u;
-
-
-
   }
 
   @get('/usuarios/count')
@@ -194,6 +221,7 @@ async recuperarClave(
     return this.usuariosRepository.count(where);
   }
 
+  @authenticate("admin")
   @get('/usuarios')
   @response(200, {
     description: 'Array of Usuarios model instances',
@@ -211,6 +239,7 @@ async recuperarClave(
   ): Promise<Usuarios[]> {
     return this.usuariosRepository.find(filter);
   }
+
 
   @patch('/usuarios')
   @response(200, {
@@ -265,6 +294,7 @@ async recuperarClave(
     await this.usuariosRepository.updateById(id, usuarios);
   }
 
+  @authenticate.skip()
   @put('/usuarios/{id}')
   @response(204, {
     description: 'Usuarios PUT success',
@@ -273,9 +303,13 @@ async recuperarClave(
     @param.path.string('id') id: string,
     @requestBody() usuarios: Usuarios,
   ): Promise<void> {
+    let nuevapass=this.servicioAutenticacion.CifrarClave(usuarios.contrasena);
+    usuarios.contrasena=nuevapass;
+    console.log(usuarios.contrasena);
     await this.usuariosRepository.replaceById(id, usuarios);
   }
 
+  @authenticate("admin")
   @del('/usuarios/{id}')
   @response(204, {
     description: 'Usuarios DELETE success',

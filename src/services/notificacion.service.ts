@@ -1,7 +1,7 @@
 import { /* inject, */ BindingScope, injectable} from '@loopback/core';
 import {Llaves} from '../config/llaves';
 import {MensajeCorreo, MensajeSms} from '../models';
-
+const fetch=require('node-fetch');
 @injectable({scope: BindingScope.TRANSIENT})
 export class NotificacionService {
   constructor(/* Add @inject to inject parameters */) {}
